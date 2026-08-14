@@ -31,6 +31,7 @@ from app.vjepa_2_1.utils import (
     normalize_nested,
 )
 from src.datasets.data_manager import init_data
+from src.models.vision_transformer import VIT_EMBED_DIMS
 from src.masks.multiseq_multiblock3d import MaskCollator
 from src.masks.utils import apply_masks
 from src.utils.distributed import init_distributed
@@ -69,6 +70,8 @@ def main(args, resume_preempt=False):
     skip_batches = cfgs_meta.get("skip_batches", -1)
     use_sdpa = cfgs_meta.get("use_sdpa", False)
     sync_gc = cfgs_meta.get("sync_gc", False)
+    use_wandb = cfgs_meta.get("use_wandb", False)
+    wandb_project = cfgs_meta.get("wandb_project", "vjepa2")
     logger.info(f"LD_PRELOAD: {os.environ.get('LD_PRELOAD')}")
     which_dtype = cfgs_meta.get("dtype")
     logger.info(f"{which_dtype=}")
@@ -120,8 +123,10 @@ def main(args, resume_preempt=False):
         embed_dim_encoder = 1408
     elif model_name == "vit_gigantic_xformers":
         embed_dim_encoder = 1664
+    elif model_name in VIT_EMBED_DIMS:
+        embed_dim_encoder = VIT_EMBED_DIMS[model_name]
     else:
-        print("Model name not recognized :(")
+        raise ValueError(f"Model name not recognized: {model_name}")
 
     # -- DATA
     cfgs_data = args.get("data")
@@ -324,6 +329,19 @@ def main(args, resume_preempt=False):
         ("%d", "gpu-time(ms)"),
         ("%d", "dataload-time(ms)"),
     )
+
+    # -- [optional] wandb logging (rank 0 only)
+    wandb_run = None
+    if use_wandb and rank == 0:
+        import wandb
+
+        wandb_run = wandb.init(
+            project=wandb_project,
+            name=os.path.basename(folder.rstrip("/")),
+            dir=folder,
+            config=args,
+            resume="allow",
+        )
 
     # -- init model
     encoder, predictor = init_video_model(
@@ -787,6 +805,19 @@ def main(args, resume_preempt=False):
                     gpu_etime_ms,
                     data_elapsed_time_ms,
                 )
+                if wandb_run is not None:
+                    wandb_run.log(
+                        {
+                            "epoch": epoch + 1,
+                            "loss": loss,
+                            "lr": _new_lr,
+                            "weight_decay": _new_wd,
+                            "iter_time_ms": iter_elapsed_time_ms,
+                            "gpu_time_ms": gpu_etime_ms,
+                            "data_time_ms": data_elapsed_time_ms,
+                        },
+                        step=epoch * ipe + itr,
+                    )
                 if (
                     (itr % log_freq == 0)
                     or (itr == ipe - 1)
@@ -833,3 +864,6 @@ def main(args, resume_preempt=False):
                 save_every_file = f"e{epoch}.pth.tar"
                 save_every_path = os.path.join(folder, save_every_file)
                 save_checkpoint(epoch + 1, save_every_path)
+
+    if wandb_run is not None:
+        wandb_run.finish()
