@@ -1,56 +1,61 @@
 #!/bin/bash
 #SBATCH --job-name=vjepa2-ssv2
 #SBATCH --nodes=1
-#SBATCH --ntasks-per-node=1          # main.py spawns the 2 ranks itself -- do NOT set 2
-#SBATCH --gres=gpu:h100:2
-#SBATCH --cpus-per-task=64           # 32 per rank x 2 ranks
-#SBATCH --mem=256G
+#SBATCH --ntasks-per-node=1          # main.py spawns both ranks itself -- do NOT set 2
+#SBATCH --gres=gpu:2
+#SBATCH --constraint=h100
+#SBATCH --cpus-per-task=48           # 24 per GPU, matching the known-good teacher job
+#SBATCH --mem=240G
 #SBATCH --time=30:00:00
-#SBATCH --output=/scratch/sd6701/vjepa2_runs/logs/%x-%A-%j.out
-#SBATCH --error=/scratch/sd6701/vjepa2_runs/logs/%x-%A-%j.err
+#SBATCH --account=torch_pr_230_tandon_priority
+#SBATCH --output=/scratch/sd6701/vjepa2_runs/logs/%x_%j.log
+#SBATCH --error=/scratch/sd6701/vjepa2_runs/logs/%x_%j.err
+#SBATCH --requeue                    # training auto-resumes from latest.pth.tar
+#SBATCH --open-mode=append           # a requeued attempt appends to the SAME %j log
 
 set -uo pipefail
 
 RUN_DIR=/scratch/sd6701/vjepa2_runs/vits.ssv2.256px.16f
 LOCK="$RUN_DIR/.race.lock"
-mkdir -p /scratch/sd6701/vjepa2_runs/logs "$RUN_DIR"
+mkdir -p "$RUN_DIR"
 
 # ------------------------------------------------------------------ #
-# RACE RESOLUTION: two jobs submitted under different accounts share  #
-# this job name. Whichever starts first wins; the other is cancelled. #
+# RACE RESOLUTION: the two jobs (one per account) share this job name #
+# Whichever starts first wins; the other is cancelled while PENDING.  #
 # ------------------------------------------------------------------ #
 
 # 1) Kill any sibling still PENDING. We are RUNNING, so this never hits us.
 scancel --me --state=PENDING --name="$SLURM_JOB_NAME" 2>/dev/null || true
 
-# 2) Guard the rare case where BOTH start at the same instant: mkdir is
-#    atomic, so exactly one job can create the lock and proceed.
+# 2) Guard the rare both-start-at-once case. mkdir is atomic.
 if ! mkdir "$LOCK" 2>/dev/null; then
     OWNER=$(cat "$LOCK/jobid" 2>/dev/null || echo "")
-    # Stale lock (owner no longer in the queue)? Steal it.
-    if [ -n "$OWNER" ] && squeue -h -j "$OWNER" >/dev/null 2>&1 && [ -n "$(squeue -h -j "$OWNER" 2>/dev/null)" ]; then
+    if [ "$OWNER" = "$SLURM_JOB_ID" ]; then
+        echo "Reclaiming lock after requeue of job $SLURM_JOB_ID."
+    elif [ -n "$OWNER" ] && [ -n "$(squeue -h -j "$OWNER" 2>/dev/null)" ]; then
         echo "Job $OWNER already running this experiment. Exiting $SLURM_JOB_ID."
         exit 0
+    else
+        echo "Stale lock from job ${OWNER:-unknown}; taking over."
     fi
-    echo "Stale lock from job ${OWNER:-unknown}; taking over."
-    rm -rf "$LOCK" && mkdir "$LOCK"
+    rm -rf "$LOCK"; mkdir "$LOCK"
 fi
 echo "$SLURM_JOB_ID" > "$LOCK/jobid"
 trap 'rm -rf "$LOCK"' EXIT
 
-echo "=== winner: job $SLURM_JOB_ID  account=${SLURM_JOB_ACCOUNT:-?}  partition=${SLURM_JOB_PARTITION:-?} ==="
+echo "=== winner: job $SLURM_JOB_ID  account=${SLURM_JOB_ACCOUNT:-?}  node=$(hostname) ==="
 
 set -e
-# ---- environment (ADJUST to your setup) -------------------------------------
+# ---- environment (ADJUST if these are wrong) --------------------------------
 module purge
 source ~/.bashrc
 conda activate vjepa2
 # -----------------------------------------------------------------------------
 
-cd /scratch/sd6701/vjepa2          # ADJUST: repo path on the cluster
+cd /scratch/sd6701/vjepa2          # ADJUST: repo path on Torch
 
 export OMP_NUM_THREADS=8
-export WANDB_MODE=offline          # compute nodes typically have no egress
+export WANDB_MODE=offline
 
 nvidia-smi
 echo "=== starting $(date) ==="

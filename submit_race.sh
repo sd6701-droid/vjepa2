@@ -34,14 +34,30 @@ elif [ $# -ne 2 ]; then
     exit 1
 fi
 
+# Resource flags -- override from the command line without editing files, e.g.
+#   PARTITION=gpu GPUFLAG="--gres=gpu:2" ./submit_race.sh
+#   GPUFLAG="--gpus-per-node=2" CPUS=32 MEM=128G ./submit_race.sh
+GPUFLAG="${GPUFLAG:---gres=gpu:2 --constraint=h100}"
+PARTITION="${PARTITION:-}"
+CPUS="${CPUS:-48}"
+MEM="${MEM:-240G}"
+TIME="${TIME:-30:00:00}"
+
+# SLURM will not create the --output directory; it must exist before submit.
+mkdir -p /scratch/sd6701/vjepa2_runs/logs
+
 submit_one () {
     local spec="$1"
     local acct="${spec%%:*}"
     local qos=""
     [ "$spec" != "$acct" ] && qos="${spec#*:}"
 
-    local flags=(--parsable --account="$acct")
+    local flags=(--parsable --account="$acct"
+                 --cpus-per-task="$CPUS" --mem="$MEM" --time="$TIME")
+    # shellcheck disable=SC2206
+    flags+=($GPUFLAG)
     [ -n "$qos" ] && flags+=(--qos="$qos")
+    [ -n "$PARTITION" ] && flags+=(--partition="$PARTITION")
 
     local jid
     if ! jid=$(sbatch "${flags[@]}" sbatch_train.sh); then
