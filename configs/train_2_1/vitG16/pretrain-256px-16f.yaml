@@ -1,6 +1,6 @@
 app: vjepa_2_1
 nodes: 1
-tasks_per_node: 1
+tasks_per_node: 2
 cpus_per_task: 32
 mem_per_gpu: 220G
 folder: /scratch/sd6701/vjepa2_runs/vits.ssv2.256px.16f
@@ -108,12 +108,12 @@ optimization:
   ema:
   - 0.99925
   - 0.99925
-  epochs: 1000
+  epochs: 400
   final_lr: 0.0006
   final_weight_decay: 0.04
   ipe: 300
   ipe_scale: 1.25
   lr: 0.0006
   start_lr: 0.0001
-  warmup: 40
+  warmup: 25
   weight_decay: 0.04
