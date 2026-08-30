@@ -45,18 +45,26 @@ trap 'rm -rf "$LOCK"' EXIT
 
 echo "=== winner: job $SLURM_JOB_ID  account=${SLURM_JOB_ACCOUNT:-?}  node=$(hostname) ==="
 
-set -e
-# ---- environment (ADJUST if these are wrong) --------------------------------
-module purge
+# ---- environment ------------------------------------------------------------
+# NOTE: `set -u` must be OFF here. Torch's /etc/bashrc reads $BASHRCSOURCED
+# before defining it, and conda's shell hook has the same habit -- both abort
+# the job under `set -u`. Re-enabled after activation.
+set +u
 source ~/.bashrc
 conda activate vjepa2
+set -u
 # -----------------------------------------------------------------------------
 
+set -e
 cd /scratch/sd6701/vjepa2          # ADJUST: repo path on Torch
 
 export OMP_NUM_THREADS=8
 export WANDB_MODE=offline
 
+echo "--- env check ---"
+echo "python : $(which python)"
+python -c "import torch; print('torch  :', torch.__version__, '| cuda avail:', torch.cuda.is_available(), '| gpus:', torch.cuda.device_count())"
+echo "cwd    : $(pwd)"
 nvidia-smi
 echo "=== starting $(date) ==="
 
