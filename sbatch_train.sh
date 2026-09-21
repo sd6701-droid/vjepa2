@@ -70,7 +70,7 @@ echo "=== run_id=$RUN_ID  config=$CONFIG ==="
 # the job under `set -u`. Re-enabled after activation.
 set +u
 source ~/.bashrc
-conda activate vjepa2
+conda activate vjepa2-312 || { echo "conda activate vjepa2-312 failed" >&2; exit 1; }
 set -u
 # -----------------------------------------------------------------------------
 
