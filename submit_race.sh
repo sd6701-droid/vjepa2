@@ -13,7 +13,6 @@
 # <yaml folder>/<RUN_ID>/ so runs never overwrite each other.
 #   ./submit_race.sh                                  # new run, auto RUN_ID
 #   RUN_ID=<id> ./submit_race.sh                      # resume/continue run <id>
-#   CONFIG=configs/.../pretrain-256px-16f-100ep.yaml ./submit_race.sh
 set -eu
 
 CONFIG="${CONFIG:-configs/train_2_1/vitG16/pretrain-256px-16f.yaml}"
