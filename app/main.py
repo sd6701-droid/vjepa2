@@ -5,6 +5,7 @@
 
 import argparse
 import multiprocessing as mp
+import os
 import pprint
 from pathlib import Path
 
@@ -23,6 +24,13 @@ parser.add_argument(
     help="which devices to use on local machine",
 )
 parser.add_argument(
+    "--run_id",
+    type=str,
+    default=os.environ.get("RUN_ID"),
+    help="unique id of this run; checkpoints/logs go to <folder>/<run_id>. "
+    "Reuse the same id to resume a run. Defaults to $RUN_ID.",
+)
+parser.add_argument(
     "--debugmode",
     type=bool,
     default=False,
@@ -32,9 +40,7 @@ parser.add_argument(
 )
 
 
-def process_main(rank, fname, world_size, devices):
-    import os
-
+def process_main(rank, fname, world_size, devices, run_id=None):
     os.environ["CUDA_VISIBLE_DEVICES"] = str(devices[rank].split(":")[-1])
 
     import logging
@@ -54,6 +60,12 @@ def process_main(rank, fname, world_size, devices):
     with open(fname, "r") as y_file:
         params = yaml.load(y_file, Loader=yaml.FullLoader)
         logger.info("loaded params...")
+
+    # Every run gets its own sub-folder so runs sharing a config `folder`
+    # never overwrite (or accidentally resume from) each other's checkpoints
+    if run_id:
+        params["folder"] = os.path.join(params["folder"], run_id)
+        logger.info(f"run_id {run_id} -> folder {params['folder']}")
 
     # Log config
     if rank == 0:
@@ -76,9 +88,9 @@ def process_main(rank, fname, world_size, devices):
 if __name__ == "__main__":
     args = parser.parse_args()
     if args.debugmode:
-        process_main(rank=0, fname=args.fname, world_size=1, devices=["cuda:0"])
+        process_main(rank=0, fname=args.fname, world_size=1, devices=["cuda:0"], run_id=args.run_id)
     else:
         num_gpus = len(args.devices)
         mp.set_start_method("spawn")
         for rank in range(num_gpus):
-            mp.Process(target=process_main, args=(rank, args.fname, num_gpus, args.devices)).start()
+            mp.Process(target=process_main, args=(rank, args.fname, num_gpus, args.devices, args.run_id)).start()

@@ -8,9 +8,19 @@
 #   ./submit_race.sh SPEC1 SPEC2               # override the accounts
 #
 # SPEC is  account[:qos]
+#
+# Every submission is one RUN, identified by RUN_ID. Checkpoints/logs go to
+# <yaml folder>/<RUN_ID>/ so runs never overwrite each other.
+#   ./submit_race.sh                                  # new run, auto RUN_ID
+#   RUN_ID=<id> ./submit_race.sh                      # resume/continue run <id>
+#   CONFIG=configs/.../pretrain-256px-16f-100ep.yaml ./submit_race.sh
 set -eu
 
-JOBNAME=vjepa2-ssv2
+CONFIG="${CONFIG:-configs/train_2_1/vitG16/pretrain-256px-16f.yaml}"
+[ -f "$CONFIG" ] || { echo "error: config not found: $CONFIG" >&2; exit 1; }
+RUN_ID="${RUN_ID:-$(basename "$CONFIG" .yaml)_$(date +%Y%m%d-%H%M%S)}"
+# Both siblings share this name (race logic keys off it); unique per run.
+JOBNAME="vjepa2-$RUN_ID"
 
 DEFAULT1=torch_pr_230_tandon_priority
 DEFAULT2=torch_pr_230_tandon_advanced
@@ -41,7 +51,7 @@ GPUFLAG="${GPUFLAG:---gres=gpu:2 --constraint=h100}"
 PARTITION="${PARTITION:-}"
 CPUS="${CPUS:-48}"
 MEM="${MEM:-240G}"
-TIME="${TIME:-30:00:00}"
+TIME="${TIME:-48:00:00}"
 
 # SLURM will not create the --output directory; it must exist before submit.
 mkdir -p /scratch/sd6701/vjepa2_runs/logs
@@ -52,7 +62,8 @@ submit_one () {
     local qos=""
     [ "$spec" != "$acct" ] && qos="${spec#*:}"
 
-    local flags=(--parsable --account="$acct"
+    local flags=(--parsable --account="$acct" --job-name="$JOBNAME"
+                 --export="ALL,RUN_ID=$RUN_ID,CONFIG=$CONFIG"
                  --cpus-per-task="$CPUS" --mem="$MEM" --time="$TIME")
     # shellcheck disable=SC2206
     flags+=($GPUFLAG)
@@ -67,6 +78,13 @@ submit_one () {
     echo "$jid"
 }
 
+if [ -n "$(squeue --me --name="$JOBNAME" -h 2>/dev/null)" ]; then
+    echo "error: run $RUN_ID already has jobs queued/running (squeue --me --name=$JOBNAME)" >&2
+    exit 1
+fi
+
+echo "run_id : $RUN_ID"
+echo "config : $CONFIG"
 echo "submitting under: $1"
 J1=$(submit_one "$1") && echo "  job $J1"
 echo "submitting under: $2"
@@ -75,3 +93,4 @@ J2=$(submit_one "$2") && echo "  job $J2"
 echo
 echo "watch  : squeue --me --name=$JOBNAME"
 echo "cancel : scancel --me --name=$JOBNAME"
+echo "resume : RUN_ID=$RUN_ID CONFIG=$CONFIG ./submit_race.sh"

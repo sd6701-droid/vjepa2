@@ -15,7 +15,7 @@ data:
   patch_size: 16
   dataset_fpcs:
   - 16
-  tubelet_size: 2
+  tubelet_size: 1
   fps: 4
   num_workers: 8
   persistent_workers: true
@@ -108,12 +108,12 @@ optimization:
   ema:
   - 0.99925
   - 0.99925
-  epochs: 400
+  epochs: 1000
   final_lr: 0.0006
   final_weight_decay: 0.04
   ipe: 300
   ipe_scale: 1.25
   lr: 0.0006
   start_lr: 0.0001
-  warmup: 25
+  warmup: 40
   weight_decay: 0.04
