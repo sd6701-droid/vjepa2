@@ -78,7 +78,7 @@ set -e
 cd /scratch/sd6701/vjepa2          # ADJUST: repo path on Torch
 
 export OMP_NUM_THREADS=8
-export WANDB_MODE=offline
+export WANDB_MODE="${WANDB_MODE:-online}"   # WANDB_MODE=offline ./submit_race.sh to log locally
 
 echo "--- env check ---"
 echo "python : $(which python)"
