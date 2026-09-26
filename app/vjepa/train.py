@@ -51,6 +51,19 @@ torch.backends.cudnn.benchmark = True
 logger = get_logger(__name__, force=True)
 
 
+def rankme(z, eps=1e-7):
+    """RankMe (Garrido et al., 2023): exp(entropy of normalized singular values) of [N, D] features."""
+    s = torch.linalg.svdvals(z.float())
+    p = s / (s.sum() + eps)
+    return float(torch.exp(-(p * torch.log(p + eps)).sum()))
+
+
+def feature_std(z):
+    """Per-dimension std across tokens of layer-normed features, averaged over dims (-> 0 on collapse)."""
+    z = z.float().reshape(-1, z.size(-1))
+    return float(F.layer_norm(z, (z.size(-1),)).std(dim=0).mean())
+
+
 def main(args, resume_preempt=False):
     # ----------------------------------------------------------------------- #
     #  PASSED IN PARAMS FROM CONFIG FILE
@@ -68,6 +81,8 @@ def main(args, resume_preempt=False):
     sync_gc = cfgs_meta.get("sync_gc", False)
     use_wandb = cfgs_meta.get("use_wandb", False)
     wandb_project = cfgs_meta.get("wandb_project", "vjepa2")
+    stats_freq = cfgs_meta.get("stats_freq", 10)  # itrs between feature-std / rankme stats
+    rankme_tokens = cfgs_meta.get("rankme_tokens", 4096)  # tokens sampled for per-step rankme
     which_dtype = cfgs_meta.get("dtype")
     logger.info(f"{which_dtype=}")
     if which_dtype.lower() == "bfloat16":
@@ -403,6 +418,7 @@ def main(args, resume_preempt=False):
         iter_time_meter = AverageMeter()
         gpu_time_meter = AverageMeter()
         data_elapsed_time_meter = AverageMeter()
+        epoch_pooled_teacher = []  # clip-level teacher embeddings for the per-epoch rankme
 
         for itr in range(ipe):
             itr_start_time = time.time()
@@ -459,9 +475,9 @@ def main(args, resume_preempt=False):
                         return h
 
                 def forward_context(c):
-                    z = encoder(c, masks_enc)
-                    z = predictor(z, masks_enc, masks_pred)
-                    return z
+                    z_enc = encoder(c, masks_enc)
+                    z = predictor(z_enc, masks_enc, masks_pred)
+                    return z, z_enc
 
                 def loss_fn(z, h):
                     # Assumption: predictor will have returned only masked tokens for z
@@ -478,8 +494,25 @@ def main(args, resume_preempt=False):
                 # Step 1. Forward
                 with torch.cuda.amp.autocast(dtype=dtype, enabled=mixed_precision):
                     h = forward_target(clips)
-                    z = forward_context(clips)
+                    z, z_enc = forward_context(clips)
                     loss = loss_fn(z, h)  # jepa prediction loss
+
+                # -- feature statistics (collapse monitoring); first fpc / first mask only
+                stats = {}
+                with torch.no_grad():
+                    epoch_pooled_teacher.append(h[0].float().mean(dim=1))  # [B, D]
+                    if itr % stats_freq == 0:
+                        h_tok = h[0].float().reshape(-1, h[0].size(-1))
+                        s_tok = z_enc[0][0].float().reshape(-1, z_enc[0][0].size(-1))
+                        pick_h = torch.randperm(h_tok.size(0), device=h_tok.device)[:rankme_tokens]
+                        pick_s = torch.randperm(s_tok.size(0), device=s_tok.device)[:rankme_tokens]
+                        stats = {
+                            "feat_std/teacher": feature_std(h_tok),
+                            "feat_std/student": feature_std(s_tok),
+                            "feat_std/predictor": feature_std(z[0][0]),
+                            "rankme/teacher_tokens": rankme(h_tok[pick_h]),
+                            "rankme/student_tokens": rankme(s_tok[pick_s]),
+                        }
 
                 # Step 2. Backward & step
                 if mixed_precision:
@@ -509,13 +542,25 @@ def main(args, resume_preempt=False):
                     float(loss),
                     _new_lr,
                     _new_wd,
+                    m,
+                    stats,
                 )
 
             (
                 loss,
                 _new_lr,
                 _new_wd,
+                _ema_m,
+                feat_stats,
             ), gpu_etime_ms = gpu_timer(train_step)
+
+            # -- mask ratio: fraction of tokens hidden from the encoder, per mask generator
+            mask_stats = {}
+            for _fpc_clips, _fpc_masks_enc in zip(clips, masks_enc):
+                _fpc = _fpc_clips.size(2)
+                _n_tokens = (_fpc // tubelet_size) * (crop_size // patch_size) ** 2
+                for _j, _m in enumerate(_fpc_masks_enc):
+                    mask_stats[f"mask/ratio_f{_fpc}_m{_j}"] = 1.0 - _m.size(1) / _n_tokens
             iter_elapsed_time_ms = (time.time() - itr_start_time) * 1000.0
             loss_meter.update(loss)
             iter_time_meter.update(iter_elapsed_time_ms)
@@ -535,6 +580,9 @@ def main(args, resume_preempt=False):
                             "iter_time_ms": iter_elapsed_time_ms,
                             "gpu_time_ms": gpu_etime_ms,
                             "data_time_ms": data_elapsed_time_ms,
+                            "ema_momentum": _ema_m,
+                            **mask_stats,
+                            **feat_stats,
                         },
                         step=epoch * ipe + itr,
                     )
@@ -563,6 +611,12 @@ def main(args, resume_preempt=False):
 
             log_stats()
             assert not np.isnan(loss), "loss is nan"
+
+        # -- clip-level rankme over all (augmented) training clips seen this epoch on this rank
+        pooled_rankme = rankme(torch.cat(epoch_pooled_teacher))
+        logger.info("teacher pooled rankme (epoch %d): %.2f" % (epoch + 1, pooled_rankme))
+        if wandb_run is not None:
+            wandb_run.log({"epoch": epoch + 1, "rankme/teacher_pooled_epoch": pooled_rankme}, step=(epoch + 1) * ipe - 1)
 
         # -- Save Checkpoint
         logger.info("avg. loss %.3f" % loss_meter.avg)

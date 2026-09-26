@@ -12,6 +12,8 @@ vjepa_2_1), evaluates every <run_dir>/eN.pt (V-JEPA 2) or eN.pth.tar (V-JEPA 2.1
 checkpoint -- only N % --every == 0 if given, plus latest with --include-latest --
 on the same fixed set of clips, and appends results to <run_dir>/rankme.csv. Checkpoints
 already in the csv are skipped, so it can be re-run while training continues.
+With --wandb, each result is also logged to a separate "<run>-rankme" wandb run
+(same project, grouped with the training run); re-runs append to that same run.
 
 Two numbers per checkpoint:
     rankme_pooled : clip embeddings (mean over all tokens)  -> global features
@@ -21,6 +23,7 @@ Two numbers per checkpoint:
 import argparse
 import csv
 import glob
+import hashlib
 import os
 import re
 import sys
@@ -182,6 +185,29 @@ def file_index(path):
     return int(m.group(1)) if m else None
 
 
+def init_wandb(args, p, data_csv):
+    import wandb
+
+    run_name = os.path.basename(os.path.abspath(args.run_dir))
+    # same settings -> same wandb id, so re-runs append points to one run
+    key = f"{os.path.abspath(args.run_dir)}|{data_csv}|{args.num_samples}|{args.seed}|{args.which}"
+    run = wandb.init(
+        project=args.wandb_project or p.get("meta", {}).get("wandb_project", "vjepa2"),
+        name=f"{run_name}-rankme",
+        group=run_name,
+        job_type="rankme",
+        id="rankme-" + hashlib.md5(key.encode()).hexdigest()[:12],
+        resume="allow",
+        dir=args.run_dir,
+        config={"run_dir": os.path.abspath(args.run_dir), "app": p["app"], "data": data_csv,
+                "num_samples": args.num_samples, "tokens_per_clip": args.tokens_per_clip,
+                "which": args.which, "seed": args.seed, "model": p["model"]["model_name"]},
+    )
+    run.define_metric("epoch")
+    run.define_metric("rankme/*", step_metric="epoch")
+    return run
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("run_dir")
@@ -197,6 +223,8 @@ def main():
     ap.add_argument("--cache", default=None, help="file to save/load the decoded clips (uint8)")
     ap.add_argument("--num-workers", type=int, default=8)
     ap.add_argument("--seed", type=int, default=0)
+    ap.add_argument("--wandb", action="store_true", help="also log results to wandb")
+    ap.add_argument("--wandb-project", default=None, help="default: meta.wandb_project of the run")
     ap.add_argument("--device", default="cuda" if torch.cuda.is_available() else "cpu")
     args = ap.parse_args()
 
@@ -226,6 +254,7 @@ def main():
     print(f"clips from {data_csv}")
     clips = load_clips(p, data_csv, args.num_samples, args.seed, args.num_workers, args.cache)
     encoder = build_encoder(p, args.device)
+    wandb_run = init_wandb(args, p, data_csv) if args.wandb else None
 
     fields = ["checkpoint", "epoch", "rankme_pooled", "rankme_tokens", "embed_dim",
               "num_clips", "num_tokens", "train_loss", "which"]
@@ -256,8 +285,17 @@ def main():
             print(f"{row['checkpoint']:>16s}  epoch {row['epoch']!s:>4}  "
                   f"rankme pooled {row['rankme_pooled']:>7s} / tokens {row['rankme_tokens']:>7s}  "
                   f"(max {row['embed_dim']})  loss {row['train_loss']}")
+            if wandb_run is not None:
+                wandb_run.log({
+                    "epoch": row["epoch"],
+                    "rankme/pooled": float(row["rankme_pooled"]),
+                    "rankme/tokens": float(row["rankme_tokens"]),
+                    "rankme/train_loss": float(row["train_loss"]),
+                })
             del ckpt
     print(f"wrote {out_csv}")
+    if wandb_run is not None:
+        wandb_run.finish()
 
 
 if __name__ == "__main__":
