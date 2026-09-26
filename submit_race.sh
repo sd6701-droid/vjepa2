@@ -15,7 +15,7 @@
 #   RUN_ID=<id> ./submit_race.sh                      # resume/continue run <id>
 set -eu
 
-CONFIG="${CONFIG:-configs/train_2_1/vitG16/pretrain-256px-16f.yaml}"
+CONFIG="${CONFIG:-configs/train/vits16/pretrain-256px-16f.yaml}"
 [ -f "$CONFIG" ] || { echo "error: config not found: $CONFIG" >&2; exit 1; }
 RUN_ID="${RUN_ID:-$(basename "$CONFIG" .yaml)_$(date +%Y%m%d-%H%M%S)}"
 # Both siblings share this name (race logic keys off it); unique per run.

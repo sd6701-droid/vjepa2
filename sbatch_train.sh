@@ -10,7 +10,7 @@
 #SBATCH --account=torch_pr_230_tandon_priority
 #SBATCH --output=/scratch/sd6701/vjepa2_runs/logs/%x_%j.log
 #SBATCH --error=/scratch/sd6701/vjepa2_runs/logs/%x_%j.err
-#SBATCH --requeue                    # training auto-resumes from latest.pth.tar
+#SBATCH --requeue                    # training auto-resumes from latest.pt
 #SBATCH --open-mode=append           # a requeued attempt appends to the SAME %j log
 
 set -uo pipefail
@@ -23,16 +23,16 @@ fi
 
 # RUN_ID / CONFIG are exported by submit_race.sh. Checkpoints and logs go to
 # <yaml folder>/<RUN_ID>/ (see app/main.py), so every run is isolated; a
-# requeue or a resubmission with the SAME RUN_ID resumes from its latest.pth.tar.
+# requeue or a resubmission with the SAME RUN_ID resumes from its latest.pt.
 : "${RUN_ID:?RUN_ID is not set -- submit via submit_race.sh}"
-CONFIG="${CONFIG:-configs/train_2_1/vitG16/pretrain-256px-16f.yaml}"
+CONFIG="${CONFIG:-configs/train/vits16/pretrain-256px-16f.yaml}"
 
 # -- First-to-start wins (dual-account submission) ----------------------------
 # submit_race.sh submits this script twice (torch_pr_230_tandon_priority and
 # torch_pr_230_tandon_advanced) WITH THE SAME --job-name; whichever starts
 # first scancels the still-pending sibling. If both dispatch in the same
 # scheduling cycle, the one with the earlier start time survives (tie -> lower
-# job id) -- two live runs would share one RUN_DIR / latest.pth.tar, which
+# job id) -- two live runs would share one RUN_DIR / latest.pt, which
 # must never happen.
 # NB the block keys off --job-name; submit_race.sh names jobs vjepa2-<RUN_ID>,
 # so different runs never see each other as siblings.
