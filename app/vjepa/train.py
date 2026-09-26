@@ -66,6 +66,8 @@ def main(args, resume_preempt=False):
     skip_batches = cfgs_meta.get("skip_batches", -1)
     use_sdpa = cfgs_meta.get("use_sdpa", False)
     sync_gc = cfgs_meta.get("sync_gc", False)
+    use_wandb = cfgs_meta.get("use_wandb", False)
+    wandb_project = cfgs_meta.get("wandb_project", "vjepa2")
     which_dtype = cfgs_meta.get("dtype")
     logger.info(f"{which_dtype=}")
     if which_dtype.lower() == "bfloat16":
@@ -159,6 +161,19 @@ def main(args, resume_preempt=False):
 
     # -- init torch distributed backend
     world_size, rank = init_distributed()
+
+    # -- [optional] wandb logging (rank 0 only)
+    wandb_run = None
+    if use_wandb and rank == 0:
+        import wandb
+
+        wandb_run = wandb.init(
+            project=wandb_project,
+            name=os.path.basename(folder.rstrip("/")),
+            dir=folder,
+            config=args,
+            resume="allow",
+        )
     logger.info(f"Initialized (rank/world-size) {rank}/{world_size}")
 
     # -- set device
@@ -499,6 +514,19 @@ def main(args, resume_preempt=False):
             # -- Logging
             def log_stats():
                 csv_logger.log(epoch + 1, itr, loss, iter_elapsed_time_ms, gpu_etime_ms, data_elapsed_time_ms)
+                if wandb_run is not None:
+                    wandb_run.log(
+                        {
+                            "epoch": epoch + 1,
+                            "loss": loss,
+                            "lr": _new_lr,
+                            "weight_decay": _new_wd,
+                            "iter_time_ms": iter_elapsed_time_ms,
+                            "gpu_time_ms": gpu_etime_ms,
+                            "data_time_ms": data_elapsed_time_ms,
+                        },
+                        step=epoch * ipe + itr,
+                    )
                 if (itr % log_freq == 0) or (itr == ipe - 1) or np.isnan(loss) or np.isinf(loss):
                     logger.info(
                         "[%d, %5d] loss: %.3f "
@@ -534,3 +562,6 @@ def main(args, resume_preempt=False):
                 save_every_file = f"e{epoch}.pt"
                 save_every_path = os.path.join(folder, save_every_file)
                 save_checkpoint(epoch + 1, save_every_path)
+
+    if wandb_run is not None:
+        wandb_run.finish()

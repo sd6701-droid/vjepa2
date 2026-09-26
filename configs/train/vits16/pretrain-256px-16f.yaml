@@ -60,6 +60,8 @@ mask:
   - 1.0
   - 1.0
 meta:
+  use_wandb: true
+  wandb_project: vjepa2
   dtype: bfloat16
   eval_freq: 100
   load_checkpoint: true
