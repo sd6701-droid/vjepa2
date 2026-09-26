@@ -187,6 +187,7 @@ def main(args, resume_preempt=False):
     log_file = os.path.join(folder, f"log_r{rank}.csv")
     latest_file = "latest.pt"
     latest_path = os.path.join(folder, latest_file)
+    best_path = os.path.join(folder, "best.pt")
     load_path = None
     if load_model:
         if is_anneal:
@@ -342,6 +343,15 @@ def main(args, resume_preempt=False):
                 next(momentum_scheduler)
                 mask_collator.step()
 
+    # -- best (lowest avg. epoch loss) checkpoint; restore the record on resume
+    best_loss = float("inf")
+    if start_epoch > 0 and os.path.exists(best_path):
+        try:
+            best_loss = float(torch.load(best_path, map_location="cpu", weights_only=False).get("loss", best_loss))
+            logger.info(f"resuming with best loss so far {best_loss:.4f} from {best_path}")
+        except Exception as e:
+            logger.info(f"could not read best loss from {best_path}: {e}")
+
     def save_checkpoint(epoch, path):
         if rank != 0:
             return
@@ -353,6 +363,7 @@ def main(args, resume_preempt=False):
             "target_encoder": target_encoder.state_dict(),
             "epoch": epoch,
             "loss": loss_meter.avg,
+            "best_loss": best_loss,
             "batch_size": batch_size,
             "world_size": world_size,
             "lr": lr,
@@ -562,6 +573,11 @@ def main(args, resume_preempt=False):
                 save_every_file = f"e{epoch}.pt"
                 save_every_path = os.path.join(folder, save_every_file)
                 save_checkpoint(epoch + 1, save_every_path)
+        # -- Save Best (lowest avg. loss over an epoch)
+        if loss_meter.avg < best_loss:
+            logger.info("new best avg. loss %.4f (prev %.4f) -> saving %s" % (loss_meter.avg, best_loss, best_path))
+            best_loss = loss_meter.avg
+            save_checkpoint(epoch + 1, best_path)
 
     if wandb_run is not None:
         wandb_run.finish()
