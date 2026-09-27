@@ -184,6 +184,7 @@ def main(args, resume_preempt=False):
 
         wandb_run = wandb.init(
             project=wandb_project,
+            id=os.path.basename(folder.rstrip("/")),
             name=os.path.basename(folder.rstrip("/")),
             dir=folder,
             config=args,
