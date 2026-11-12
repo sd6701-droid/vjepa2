@@ -3,21 +3,15 @@ nodes: 1
 tasks_per_node: 2
 cpus_per_task: 32
 mem_per_gpu: 220G
-folder: /gpfs/scratch/sd6701/vjepa2_runs/vits.ssv2-k400-diving48.256px.16f.50ep
+folder: /gpfs/scratch/sd6701/vjepa2_runs/vits.ssv2.256px.16f.1ep-timing
 data:
   dataset_type: VideoDataset
-  # No datasets_weights: uniform sampling over the concatenation, so one epoch
-  # is one full pass over all three datasets.
   datasets:
   - /gpfs/scratch/sd6701/personal/salt/datasets/ssv2/labels/train.json
-  - /gpfs/scratch/sd6701/personal/salt/datasets/k400/train_labeled_nonempty.csv
-  - /gpfs/scratch/sd6701/personal/salt/datasets/diving48/train_v2_labeled.csv
-  batch_size: 96
+  batch_size: 32
   crop_size: 256
   patch_size: 16
   dataset_fpcs:
-  - 16
-  - 16
   - 16
   tubelet_size: 1
   fps: 4
@@ -70,7 +64,7 @@ meta:
   eval_freq: 100
   load_checkpoint: true
   read_checkpoint: null
-  save_every_freq: 5
+  save_every_freq: 1
   seed: 239
   use_sdpa: true
 model:
@@ -87,7 +81,7 @@ optimization:
   ema:
   - 0.99925
   - 0.99925
-  epochs: 50
+  epochs: 1
   final_lr: 1.0e-06
   final_weight_decay: 0.04
   # null -> iterations per epoch = len(dataloader), i.e. a true dataset epoch
@@ -95,5 +89,6 @@ optimization:
   ipe_scale: 1.25
   lr: 0.0004
   start_lr: 6.7e-05
-  warmup: 2
+  # fraction of an epoch is allowed: 0.1 -> warmup over the first 10% of steps
+  warmup: 0.1
   weight_decay: 0.04
