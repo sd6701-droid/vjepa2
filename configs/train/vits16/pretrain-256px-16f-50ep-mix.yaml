@@ -12,7 +12,7 @@ data:
   - /gpfs/scratch/sd6701/personal/salt/datasets/ssv2/labels/train.json
   - /gpfs/scratch/sd6701/personal/salt/datasets/k400/train_labeled_nonempty.csv
   - /gpfs/scratch/sd6701/personal/salt/datasets/diving48/train_v2_labeled.csv
-  batch_size: 32
+  batch_size: 96
   crop_size: 256
   patch_size: 16
   dataset_fpcs:
