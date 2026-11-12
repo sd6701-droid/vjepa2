@@ -118,6 +118,68 @@ def make_videodataset(
     return dataset, data_loader, dist_sampler
 
 
+_JSON_PATH_KEYS = ("path", "video_path", "video", "filename", "file")
+_JSON_LABEL_KEYS = ("label", "label_id", "class", "target")
+_VIDEO_EXTS = (".webm", ".mp4", ".avi", ".mkv")
+
+
+def _resolve_by_id(data_path, vid):
+    """Official SSv2 format only stores an id; look for <id>.<ext> near the json."""
+    base = pathlib.Path(data_path).resolve().parent
+    for root in (base, base.parent, base.parent / "videos", base / "videos",
+                 base.parent / "20bn-something-something-v2"):
+        for ext in _VIDEO_EXTS:
+            p = root / f"{vid}{ext}"
+            if p.exists():
+                return str(root), ext
+    return None, None
+
+
+def _load_json_index(data_path):
+    """Load a JSON video index: a list of dicts (or a {key: entry} dict).
+
+    Each entry needs a video path under one of _JSON_PATH_KEYS, or an "id"
+    (official SSv2 train.json) whose video file is found next to the json.
+    Non-integer labels are mapped to 0 (labels are unused for pretraining).
+    """
+    import json
+
+    with open(data_path, "r") as f:
+        data = json.load(f)
+    if isinstance(data, dict):
+        data = list(data.values())
+    if not isinstance(data, list) or len(data) == 0:
+        raise ValueError(f"{data_path}: expected a non-empty list of entries")
+
+    samples, labels = [], []
+    id_root, id_ext = None, None
+    for entry in data:
+        if isinstance(entry, str):
+            samples.append(entry)
+            labels.append(0)
+            continue
+        path = next((entry[k] for k in _JSON_PATH_KEYS if k in entry), None)
+        if path is None:
+            if "id" not in entry:
+                raise ValueError(
+                    f"{data_path}: entry has no video path key {_JSON_PATH_KEYS} or 'id': {entry}"
+                )
+            if id_root is None:
+                id_root, id_ext = _resolve_by_id(data_path, entry["id"])
+                if id_root is None:
+                    raise ValueError(
+                        f"{data_path}: could not find video file for id {entry['id']} near the json"
+                    )
+                logger.info(f"{data_path}: resolving ids as {id_root}/<id>{id_ext}")
+            path = os.path.join(id_root, f"{entry['id']}{id_ext}")
+        elif not os.path.isabs(path):
+            path = os.path.join(os.path.dirname(os.path.abspath(data_path)), path)
+        label = next((entry[k] for k in _JSON_LABEL_KEYS if k in entry), 0)
+        samples.append(path)
+        labels.append(label if isinstance(label, (int, np.integer)) else 0)
+    return samples, labels
+
+
 class VideoDataset(torch.utils.data.Dataset):
     """Video classification dataset."""
 
@@ -196,6 +258,17 @@ class VideoDataset(torch.utils.data.Dataset):
                 labels += [0] * len(data)
                 num_samples = len(data)
                 self.num_samples_per_dataset.append(len(data))
+
+            elif data_path[-5:] == ".json":
+                json_samples, json_labels = _load_json_index(data_path)
+                samples += json_samples
+                labels += json_labels
+                self.num_samples_per_dataset.append(len(json_samples))
+
+            else:
+                # Previously unknown extensions were skipped silently, which
+                # misaligned dataset_fpcs / datasets_weights with the data.
+                raise ValueError(f"Unsupported dataset index format: {data_path}")
 
         self.per_dataset_indices = ConcatIndices(self.num_samples_per_dataset)
 
