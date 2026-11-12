@@ -3,7 +3,7 @@ nodes: 1
 tasks_per_node: 2
 cpus_per_task: 32
 mem_per_gpu: 220G
-folder: /scratch/sd6701/vjepa2_runs/vits.ssv2-k400-diving48.256px.16f.50ep
+folder: /gpfs/scratch/sd6701/vjepa2_runs/vits.ssv2-k400-diving48.256px.16f.50ep
 data:
   dataset_type: VideoDataset
   # No datasets_weights: uniform sampling over the concatenation, so one epoch
