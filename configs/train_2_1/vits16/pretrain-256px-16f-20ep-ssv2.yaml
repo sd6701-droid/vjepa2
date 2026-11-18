@@ -1,0 +1,123 @@
+app: vjepa_2_1
+nodes: 1
+tasks_per_node: 2
+cpus_per_task: 32
+mem_per_gpu: 220G
+# V-JEPA 2.1, SSv2 only, 20 epochs. Same model/loss/LR/EMA settings as
+# configs/train_2_1/vits16/pretrain-256px-16f-20ep-mix.yaml; only data, epochs and warmup differ.
+# No img_data block: video-only (no ImageNet ranks), every GPU trains on video.
+folder: /gpfs/scratch/sd6701/vjepa2_runs/vits.ssv2.256px.16f.20ep.v2_1
+data:
+  dataset_type: VideoDataset
+  datasets:
+  - /gpfs/scratch/sd6701/personal/salt/datasets/ssv2/labels/train.json
+  batch_size: 32
+  crop_size: 256
+  patch_size: 16
+  dataset_fpcs:
+  - 16
+  tubelet_size: 2
+  fps: 4
+  num_workers: 8
+  persistent_workers: true
+  pin_mem: true
+data_aug:
+  auto_augment: false
+  motion_shift: false
+  random_resize_aspect_ratio:
+  - 0.75
+  - 1.35
+  random_resize_scale:
+  - 0.3
+  - 1.0
+  reprob: 0.0
+loss:
+  loss_exp: 1.0
+  # 2.1: dense loss on context tokens too, weighted by distance to the masked region
+  predict_all: true
+  reg_coeff: 0.0
+  shift_by_n: 0
+  weight_distance_loss: true
+mask:
+- aspect_ratio:
+  - 0.75
+  - 1.5
+  full_complement: false
+  max_keep: null
+  max_temporal_keep: 1.0
+  num_blocks: 8
+  spatial_scale:
+  - 0.15
+  - 0.15
+  temporal_scale:
+  - 1.0
+  - 1.0
+- aspect_ratio:
+  - 0.75
+  - 1.5
+  full_complement: false
+  max_keep: null
+  max_temporal_keep: 1.0
+  num_blocks: 2
+  spatial_scale:
+  - 0.7
+  - 0.7
+  temporal_scale:
+  - 1.0
+  - 1.0
+meta:
+  use_wandb: true
+  wandb_project: vjepa2
+  dtype: bfloat16
+  eval_freq: 100
+  load_checkpoint: true
+  read_checkpoint: null
+  save_every_freq: 5
+  seed: 239
+  use_sdpa: true
+model:
+  model_name: vit_small
+  # 2.1-specific (values from configs/train_2_1/vitb16/pretrain-256px-16f.yaml)
+  has_cls_first: false
+  interpolate_rope: true
+  is_causal: false
+  # context-loss weight; ramps 0 -> 0.5 over global iters 15k-30k (Lambda_LinearWarmupHold
+  # default); compare with "iterations per epoch" in the log
+  lambda_value_vid: 0.5
+  local_window:
+  - -1
+  - -1
+  - -1
+  modality_embedding: true
+  n_registers: 0
+  n_registers_predictor: 0
+  normalize_predictor: false
+  pred_depth: 12
+  pred_embed_dim: 384
+  pred_is_causal: false
+  pred_local_window:
+  - -1
+  - -1
+  - -1
+  pred_num_heads: 12
+  uniform_power: true
+  use_activation_checkpointing: true
+  use_mask_tokens: true
+  use_rope: true
+  vit_conv: false
+  zero_init_mask_tokens: true
+optimization:
+  ema:
+  - 0.99925
+  - 0.99925
+  epochs: 20
+  final_lr: 1.0e-06
+  final_weight_decay: 0.04
+  # null -> iterations per epoch = len(dataloader), i.e. a true dataset epoch
+  ipe: null
+  ipe_scale: 1.25
+  lr: 0.0004
+  start_lr: 6.7e-05
+  # 10% of training, same fraction as the 100-epoch SSv2 config (10/100)
+  warmup: 2
+  weight_decay: 0.04

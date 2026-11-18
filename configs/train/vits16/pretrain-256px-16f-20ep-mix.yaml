@@ -3,7 +3,7 @@ nodes: 1
 tasks_per_node: 2
 cpus_per_task: 32
 mem_per_gpu: 220G
-folder: /gpfs/scratch/sd6701/vjepa2_runs/vits.mix.256px.16f.20ep
+folder: /gpfs/scratch/sd6701/vjepa2_runs/vits.mix.256px.16f.20ep.t2
 data:
   dataset_type: VideoDataset
   # No datasets_weights: uniform sampling over the concatenation, so one epoch
@@ -19,7 +19,7 @@ data:
   - 16
   - 16
   - 16
-  tubelet_size: 1
+  tubelet_size: 2
   fps: 4
   num_workers: 8
   persistent_workers: true

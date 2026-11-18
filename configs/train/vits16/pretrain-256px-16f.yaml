@@ -3,7 +3,7 @@ nodes: 1
 tasks_per_node: 2
 cpus_per_task: 32
 mem_per_gpu: 220G
-folder: /scratch/sd6701/vjepa2_runs/vits.ssv2.256px.16f.v2
+folder: /scratch/sd6701/vjepa2_runs/vits.ssv2.256px.16f.v2.t2
 data:
   dataset_type: VideoDataset
   datasets:
@@ -15,7 +15,7 @@ data:
   patch_size: 16
   dataset_fpcs:
   - 16
-  tubelet_size: 1
+  tubelet_size: 2
   fps: 4
   num_workers: 8
   persistent_workers: true
