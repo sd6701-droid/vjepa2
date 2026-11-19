@@ -3,10 +3,10 @@ nodes: 1
 tasks_per_node: 2
 cpus_per_task: 32
 mem_per_gpu: 220G
-# V-JEPA 2.1, SSv2 only, 20 epochs. Same model/loss/LR/EMA settings as
+# V-JEPA 2.1, SSv2 only, 1 epoch, no activation checkpointing. Same model/loss/LR/EMA settings as
 # configs/train_2_1/vits16/pretrain-256px-16f-20ep-mix.yaml; only data, epochs and warmup differ.
 # No img_data block: video-only (no ImageNet ranks), every GPU trains on video.
-folder: /gpfs/scratch/sd6701/vjepa2_runs/vits.ssv2.256px.16f.20ep.v2_1
+folder: /gpfs/scratch/sd6701/vjepa2_runs/vits.ssv2.256px.16f.1ep.v2_1.noac
 data:
   dataset_type: VideoDataset
   datasets:
@@ -101,7 +101,7 @@ model:
   - -1
   pred_num_heads: 12
   uniform_power: true
-  use_activation_checkpointing: true
+  use_activation_checkpointing: false
   use_mask_tokens: true
   use_rope: true
   vit_conv: false
@@ -110,7 +110,7 @@ optimization:
   ema:
   - 0.99925
   - 0.99925
-  epochs: 20
+  epochs: 1
   final_lr: 1.0e-06
   final_weight_decay: 0.04
   # null -> iterations per epoch = len(dataloader), i.e. a true dataset epoch
@@ -118,6 +118,6 @@ optimization:
   ipe_scale: 1.25
   lr: 0.0004
   start_lr: 6.7e-05
-  # 10% of training, same fraction as the 100-epoch SSv2 config (10/100)
-  warmup: 2
+  # fraction of an epoch: warmup over the first 10% of steps
+  warmup: 0.1
   weight_decay: 0.04
